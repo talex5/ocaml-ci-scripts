@@ -7,13 +7,12 @@ fork_branch=${FORK_BRANCH:-master}
 ### Bootstrap
 
 set -uex
-unset TESTS
 
 get() {
   wget https://raw.githubusercontent.com/${fork_user}/ocaml-travisci-skeleton/${fork_branch}/$@
 }
 
-TMP_BUILD=$(mktemp -d)
+TMP_BUILD=$(mktemp -d 2>/dev/null || mktemp -d -t 'travistmpdir')
 cd ${TMP_BUILD}
 
 get .travis-ocaml.sh

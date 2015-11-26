@@ -105,7 +105,9 @@ env:
   - [...] DEPOPTS="*" [...]
 ```
 
-An empty value or the value "false" will disable the optional dependency run.
+An empty value or the value "false" will disable the optional dependency
+run. If `TESTS` is `true` (default, see below), the package's tests will
+be run during the optional dependency run as well.
 
 ### Extra Dependencies
 
@@ -189,6 +191,31 @@ repository, `.travis-opam.sh` users can layer additional OPAM remotes on top
 of the `BASE_REMOTE` with `EXTRA_REMOTES`. Remotes are added from left
 to right.
 
+## GCC and binutils
+
+```shell
+env:
+ - [...] UPDATE_GCC_BINUTILS=1 [...]
+```
+
+Travis has a rather arcane `gcc` (4.6.3) and `binutils` (2.22). Some
+pieces of C code require newer versions (e.g. intrinsics for
+RDSEED). If `UPDATE_GCC_BINUTILS` is set to a non-zero value,
+`gcc-4.8` and `binutils-2.24` are installed before running the build.
+
+## Ubuntu Trusty
+
+By default, Travis CI is using Ubuntu Precise. To add the PPA for
+Ubuntu Trusty, use:
+
+```shell
+env:
+  - [...] UBUNTU_TRUSTY=1 [...]
+```
+
+*Note:* mixing Trusty and Precise PPAs might cause some issues with
+ `apt-get update -u` when using some external dependencies.
+
 ## Mirage Unikernels, `.travis-mirage.sh`
 
 This causes Travis to build a repo as a Mirage unikernel. It assumes the
@@ -204,3 +231,51 @@ If a deployment build is requested then the corresponding Mirage `-deployment`
 repo is cloned, the Xen VM image that was built is committed to it and the
 `latest` pointer updated, and then the keys embedded in the `.travis.yml` file
 are used to push the updated `-deployment` repo back to the `mirage` org.
+
+### Changing the version of OPAM
+
+```shell
+  - [...] OPAM_VERSION="1.1.2"
+```
+
+By default, the latest stable version of OPAM will be used. The scripts supports
+these version:
+
+- `OPAM_VERSION=1.1.2` only when the OS is `unix` (default)
+- `OPAM_VERSION=1.2.0` only when the OS is `unix` (default)
+- `OPAM_VERSION=1.2.2` when the OS is either `unix` or `osx`
+- `OPAM_VERSION=1.3.0` only when the OS is `osx`
+
+### Testing on different OS
+
+See http://docs.travis-ci.com/user/multi-os/
+
+You first need to enable multi-OS support for your repository by sending an
+email to Travis CI support. Then add to your `.travis.yml`:
+
+```shell
+os:
+  - linux
+  - osx
+```
+
+## Pushing OCamldoc docs to Github page, `.travis-docgen.sh`
+
+This relies on the existence of a `configure` script and `Makefile` such that
+the docs are built as follows:
+
+```shell
+./configure --enable-docs
+make doc
+```
+
+It also relies on you uploading an OAuth token to your Travis job. To do this,
+create a token on your Github account settings page and upload it as follows:
+
+```shell
+gem install travis
+travis encrypt GH_TOKEN=<token> --add
+```
+
+It will then push the contents of the resulting `<lib>.docdir` to the Github
+pages branch of your repo.

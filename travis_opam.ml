@@ -75,10 +75,10 @@ let install args =
       ?|. "opam remove %s" deps
   end
 
-let install_with_depopts args depopts =
-(*   ?|~ "opam depext %s" depopts; *)
+let install_with_depopts depopts =
+(*  ?|~ "opam depext %s" depopts; *)
   ?|~ "opam install %s" depopts;
-  install args;
+  install ["-v"];
   ?|~ "opam remove %s -v" pkg;
   ?|~ "opam remove %s" depopts
 
@@ -93,19 +93,32 @@ let max_version package =
   in
   next_version (trim (?|> "opam show -f version %s" package))
 
-;;
-(* Go go go *)
+let with_opambuildtest fn =
+  export "OPAMBUILDTEST" "1";
+  fn ();
+  unset "OPAMBUILDTEST"
+
+;; (* Go go go *)
 
 set "-ue";
 unset "TESTS";
 export "OPAMYES" "1";
-?|  "eval $(opam config env)";
+?| "eval $(opam config env)";
 
-List.iter add_remote extra_remotes;
+begin (* remotes *)
+  let remotes =
+    ?|> "opam remote list --short | grep -v default | tr \"\\n\" \" \""
+  in
+  if remotes <> "" then begin
+    ?|. "opam remote remove %s" remotes
+  end;
+  List.iter add_remote extra_remotes
+end;
 
 List.iter pin pins;
 ?|. "opam pin add %s . -n" pkg;
 ?|  "eval $(opam config env)";
+(* ?|  "opam install depext"; *)
 
 (* Install the external dependencies *)
 (* ?|~ "opam depext %s" pkg; *)
@@ -113,66 +126,73 @@ List.iter pin pins;
 (* Install the OCaml dependencies *)
 ?|~ "opam install %s --deps-only" pkg;
 
-(* Simple installation/removal test *)
-if install_run
-then begin
-  install ["-v"];
-  ?|~ "opam remove %s -v" pkg
-end else echo "INSTALL=false, skipping the basic installation run."
-;
-
-(* Compile and run the tests as well *)
-if tests_run
-then begin
-  ?|~ "opam install %s --deps-only -t" pkg;
-  install ["-v";"-t"];
-  ?|~ "opam remove %s -v" pkg
-end else echo "TESTS=false, skipping the test run."
-;
-
-(* Compile with optional dependencies *)
-begin match depopts_run with
-  | [] | ["false"] ->
-    echo "DEPOPTS=false, skipping the optional dependency run."
-  | ["*"] -> (* query OPAM *)
-    let depopts =
-      ?|> "opam show %s | grep -oP 'depopts: \\K(.*)' | sed 's/ | / /g'" pkg
-    in
-    install_with_depopts ["-v"] depopts
-  | depopts -> install_with_depopts ["-v"] (depopts *~ " ")
+begin (* Simple installation/removal test *)
+  if install_run then (
+    install ["-v"];
+    ?|~ "opam remove %s -v" pkg
+  ) else
+    echo "INSTALL=false, skipping the basic installation run.";
 end;
 
-let revdeps = match revdep_run with
-  | [] | ["false"] | ["0"] -> None
-  | ["*"] | ["true"] | ["1"] ->
-    let revdep_cmd = ~~ "opam list --depends-on %s --short" in
-    (match !?* (?|>) revdep_cmd pkg with
-     | ls, 0 -> Some (lines ls)
-     | ls, 1 when lines ls = [] -> Some []
-     | _,  x ->
-       Printf.eprintf "'%(%s%)' exited %d. Terminating with %d\n"
-         revdep_cmd pkg x x;
-       exit x
-    )
-  | packages -> Some packages
-in
-match revdeps with
-| None -> echo "REVDEPS=false, skipping the reverse dependency rebuild run."
-| Some packages ->
-  let revdep_count = List.length packages in
-  echo "\nREVDEPS %d total" revdep_count;
-  let packages = List.fold_left (fun acc pkg ->
-    match max_version pkg with
-    | Some pkgv -> pkgv::acc
-    | None -> echo "Skipping uninstallable REVDEP %s" pkg; acc
-  ) [] packages in
-  let installable_count = List.length packages in
-  echo "%d/%d REVDEPS installable" installable_count revdep_count;
+begin (* tests *)
+  if tests_run then
+    with_opambuildtest (fun () ->
+        (* ?|~ "opam depext %s" pkg; *)
+        ?|~ "opam install %s --deps-only" pkg;
+        install ["-v";"-t"];
+        ?|~ "opam remove %s -v" pkg)
+  else
+    echo "TESTS=false, skipping the test run.";
+end;
 
-  ignore (List.fold_left (fun i dependent ->
-    echo "\nInstalling %s (REVDEP %d/%d)" dependent i installable_count;
-(*     ?|~ "opam depext %s" dependent; *)
-    ?|~ "opam install %s" dependent;
-    ?|~ "opam remove %s" dependent;
-    i + 1
-  ) 1 packages)
+begin (* optioanal dependencies *)
+  let depopts_run = match depopts_run with
+    | [] | ["false"] -> None
+    | ["*"] -> (* query OPAM *)
+      let d =
+        ?|> "opam show %s | grep -oP 'depopts: \\K(.*)' | sed 's/ | / /g'" pkg
+      in
+      Some d
+    | depopts -> Some (depopts *~ " ")
+  in
+  match depopts_run with
+  | None   -> echo "DEPOPTS=false, skipping the optional dependency run.";
+  | Some d -> install_with_depopts d
+end;
+
+begin (* reverse dependencies *)
+  let revdeps = match revdep_run with
+    | [] | ["false"] | ["0"] -> None
+    | ["*"] | ["true"] | ["1"] ->
+      let revdep_cmd = ~~ "opam list --depends-on %s --short" in
+      (match !?* (?|>) revdep_cmd pkg with
+       | ls, 0 -> Some (lines ls)
+       | ls, 1 when lines ls = [] -> Some []
+       | _,  x ->
+         Printf.eprintf "'%(%s%)' exited %d. Terminating with %d\n"
+           revdep_cmd pkg x x;
+         exit x
+      )
+    | packages -> Some packages
+  in
+  match revdeps with
+  | None -> echo "REVDEPS=false, skipping the reverse dependency rebuild run."
+  | Some packages ->
+    let revdep_count = List.length packages in
+    echo "\nREVDEPS %d total" revdep_count;
+    let packages = List.fold_left (fun acc pkg ->
+        match max_version pkg with
+        | Some pkgv -> pkgv::acc
+        | None -> echo "Skipping uninstallable REVDEP %s" pkg; acc
+      ) [] packages in
+    let installable_count = List.length packages in
+    echo "%d/%d REVDEPS installable" installable_count revdep_count;
+
+    ignore (List.fold_left (fun i dependent ->
+        echo "\nInstalling %s (REVDEP %d/%d)" dependent i installable_count;
+        ?|~ "opam depext %s" dependent;
+        ?|~ "opam install %s" dependent;
+        ?|~ "opam remove %s" dependent;
+        i + 1
+      ) 1 packages)
+end;

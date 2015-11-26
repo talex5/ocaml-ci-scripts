@@ -17,9 +17,12 @@ ocaml -version
 
 export OPAMYES=1
 
-opam init -a ${BASE_REMOTE}
-eval $(opam config env)
-#opam install depext
+case $OPAM_INIT in
+  true)
+      opam init -a "$BASE_REMOTE" --comp="$OPAM_SWITCH"
+      eval $(opam config env)
+      ;;
+esac
 
 opam --version
 opam --git-version
